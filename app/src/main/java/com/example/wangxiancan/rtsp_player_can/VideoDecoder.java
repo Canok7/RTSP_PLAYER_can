@@ -18,16 +18,19 @@ public class VideoDecoder  {
     private Surface mSurface;
     private Worker mWorker;
     private DataProvide dataProvide;
-    int mCount=0;
 
     //一些基本参数 final 类似与 const，不可修改
-    private final int TIMEOUT_US = 1000*1;//设置太小，会导致解码器来不及解码，导致解码丢帧花屏
+    //private final int TIMEOUT_US = 1000*1;//设置太小，会导致解码器来不及解码，导致解码丢帧花屏
+    //这里不希望丢帧，设置为无限超时。
+    private final int DECODE_TIMEOUT_US = -1; //
 
+    //要把输出Buffer消耗掉，但其实没有用它做事情，不加延时，设置为-1可能出现死锁
+    private final int OUT_TIMEOUT_US = 1000;
     //这个宽高，好像没什么卵用，实际播放的流中如果有 sps pps信息，会用流中的sps pps信息。
-    private final int mWidth=1280;
-    private final int mHeight=720;
+    private final int mWidth=1920;
+    private final int mHeight=1080;
     //if you want to save the input data to file, set bSave2file true
-    private final boolean bSave2file =false;
+    private final boolean bSave2file =true;
 
     public VideoDecoder(Surface surface)
     {
@@ -62,6 +65,7 @@ public class VideoDecoder  {
 
     //内部类 worker
     private class Worker extends Thread{
+        public static final String DECODE = "Decode";
         public static final String TAG = "WORK";
         private boolean isRunning;
         private  MediaCodec decoder;
@@ -82,7 +86,7 @@ public class VideoDecoder  {
             while (isRunning) {
                 //Log.i("TRACK","getdat befor!");
                 int len = dataProvide.getNal(dataBuf, dataBuf.length);
-                //Log.i("TRACK", "getdat after"+len);
+                Log.i("TRACK", "getdat after:"+len);
                 if(len == -1){
                     //eof
                     decodeEnd();
@@ -134,11 +138,12 @@ public class VideoDecoder  {
             //h264 格式
             MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, mWidth, mHeight);
 
-            format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, mHeight * mWidth);
-            format.setInteger(MediaFormat.KEY_MAX_HEIGHT, mHeight);
-            format.setInteger(MediaFormat.KEY_MAX_WIDTH, mWidth);
-            format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));// wrap 创建新的缓冲区，之前的 1024 将不再使用，被自动回收
-            format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));//
+            //如果h264流文件中存在 sps pps 帧，（流起始就要求有sps pps）下面这些设置就没有用，会被覆盖
+           // format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, mHeight * mWidth);
+           // format.setInteger(MediaFormat.KEY_MAX_HEIGHT, mHeight);
+           // format.setInteger(MediaFormat.KEY_MAX_WIDTH, mWidth);
+           // format.setByteBuffer("csd-0", ByteBuffer.wrap(sps));// wrap 创建新的缓冲区，之前的 1024 将不再使用，被自动回收
+           // format.setByteBuffer("csd-1", ByteBuffer.wrap(pps));//
 
 
             try {
@@ -156,19 +161,19 @@ public class VideoDecoder  {
         }
 
         private void decodeEnd(){
-            int inputBufferIndex = decoder.dequeueInputBuffer(TIMEOUT_US);
+            int inputBufferIndex = decoder.dequeueInputBuffer(DECODE_TIMEOUT_US);
             decoder.queueInputBuffer(inputBufferIndex, 0, 0, 0,
                     MediaCodec.BUFFER_FLAG_END_OF_STREAM);
 
             int outIndex = decoder.dequeueOutputBuffer(mBufferInfo,
-                    TIMEOUT_US);
+                    OUT_TIMEOUT_US);
             // Log.i(TAG, "video decoding .....");
             while (outIndex >= 0) {
                 // ByteBuffer buffer =
                 decoder.getOutputBuffer(outIndex);
                 decoder.releaseOutputBuffer(outIndex, true);
                 outIndex = decoder.dequeueOutputBuffer(mBufferInfo,
-                        TIMEOUT_US);// 再次获取数据，如果没有数据输出则outIndex=-1
+                        OUT_TIMEOUT_US);// 再次获取数据，如果没有数据输出则outIndex=-1
                 // 循环结束
             }
 
@@ -176,9 +181,10 @@ public class VideoDecoder  {
         private void decode(byte[] buf, int offset, int length){
             //在这里进行解码并输出数据
            // Log.i("TRACK","decoding");
-            //从解码器请求获取一个输入缓冲区 （出队列）
-            int inputBufferIndex = decoder.dequeueInputBuffer(TIMEOUT_US);
+            //从解码器请求获取一个输入缓冲区
+            int inputBufferIndex = decoder.dequeueInputBuffer(DECODE_TIMEOUT_US);
             if(inputBufferIndex > 0){
+                Log.i(DECODE, "video decoding");
                 ByteBuffer buffer = decoder.getInputBuffer(inputBufferIndex);
 
                 buffer.clear();
@@ -187,26 +193,23 @@ public class VideoDecoder  {
                 //入队列，放入数据
                 decoder.queueInputBuffer(inputBufferIndex, 0, length,0,
                         MediaCodec.BUFFER_FLAG_SYNC_FRAME);
-
-                mCount++;
+            }else {
+                Log.i(DECODE, "video getInput timeout ----------to drop");
             }
 
+            //以下需要将解码器解码的输出数据获取一遍，消耗掉，。。。。。。。个人感觉既然已经绑定了surface,不应该
+            //还要这么一个操作啊，没有深入研究
             int outIndex = decoder.dequeueOutputBuffer(mBufferInfo,
-                    TIMEOUT_US);
-            // Log.i(TAG, "video decoding .....");
+                    OUT_TIMEOUT_US);
             while (outIndex >= 0) {
                 // ByteBuffer buffer =
                 decoder.getOutputBuffer(outIndex);
                 decoder.releaseOutputBuffer(outIndex, true);
                 outIndex = decoder.dequeueOutputBuffer(mBufferInfo,
-                        TIMEOUT_US);// 再次获取数据，如果没有数据输出则outIndex=-1
+                        OUT_TIMEOUT_US);// 再次获取数据，如果没有数据输出则outIndex=-1
                 // 循环结束
             }
-
         }
-
-
-
     }
 
     private String dsetfilePath = Environment.getExternalStorageDirectory()+"/"+"dest.h264";
