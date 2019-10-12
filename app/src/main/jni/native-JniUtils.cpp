@@ -78,7 +78,8 @@ JNIEXPORT jint JNICALL Java_com_example_wangxiancan_rtsp_1player_1can_JniUtils_G
     {
         TRACK("live555_start");
         bInit = 1;
-       if( live555_start("rtsp://192.168.43.1:10086/stream") == -1)
+      // if( live555_start("rtsp://192.168.43.1:10086/stream") == -1)
+          if( live555_start("rtsp://192.168.49.40:10086/stream") == -1)
        {
            TRACK("live555_start erro \n");
            bInit =0;

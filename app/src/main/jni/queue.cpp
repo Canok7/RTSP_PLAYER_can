@@ -1,13 +1,15 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include <string.h>
+#include "jnilog.h"
 
 #include "queue.h"
 #define LOOP_ADD(i,r) ((i)+1)>=(r)?0:(i+1)
 
 #define ERRO_INFO(fmt, args...) do {printf("[%s,%s,%d]",__FILE__,__FUNCTION__,__LINE__);printf(fmt,##args);} while(0)
 #if 1
-#define DEBUG(fmt, args...)		do {printf("[%s,%s,%d]",__FILE__,__FUNCTION__,__LINE__);printf(fmt,##args);} while(0)
+//#define DEBUG(fmt, args...)		do {printf("[%s,%s,%d]",__FILE__,__FUNCTION__,__LINE__);printf(fmt,##args);} while(0)
+#define DEBUG(...)  __android_log_print(ANDROID_LOG_INFO,"Queue","[%d %s]",__LINE__,__FUNCTION__);__android_log_print(ANDROID_LOG_INFO,MY_LOG_TAG,__VA_ARGS__)
 #else
 #define DEBUG(fmt, args...)  
 #endif

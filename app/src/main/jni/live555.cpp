@@ -21,6 +21,11 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 // "openRTSP": http://www.live555.com/openRTSP/
 
 #include <pthread.h>
+#include <sys/types.h>          /* See NOTES */
+#include <sys/socket.h>
+
+#include <GroupsockHelper.hh>
+
 #include "live555.h"
 #include "queue.h"
 #include "jnilog.h"
@@ -72,6 +77,30 @@ char eventLoopWatchVariable = 0;
     TaskScheduler* scheduler = BasicTaskScheduler::createNew();
     UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
 
+    int ret =0;
+    pid_t pid =getpid();
+    int curschdu = sched_getscheduler(pid);
+    if(curschdu < 0 ) {
+        TRACK("schedu err %s\n", strerror(errno));
+    }
+    TRACK("schedu befor %d",curschdu);
+
+    struct sched_param s_parm;
+    s_parm.sched_priority = sched_get_priority_max(SCHED_RR)-2;
+    TRACK("schedu max %d min %d",sched_get_priority_max(SCHED_RR),sched_get_priority_min(SCHED_FIFO));
+    ret = sched_setscheduler(pid, SCHED_RR, &s_parm);
+    if(ret < 0)
+    {
+        TRACK( "schedu err %s\n",strerror( errno));
+    }
+
+    curschdu = sched_getscheduler(pid);
+    if(curschdu <0 )
+    {
+        TRACK( "schedu err %s\n",strerror( errno));
+    }
+
+    TRACK("schedu after %d",curschdu);
 #if 0
     // We need at least one "rtsp://" URL argument:
     if (argc < 2) {
@@ -111,18 +140,31 @@ char eventLoopWatchVariable = 0;
 /*----------------------------------------*/
 CQueue * g_pQueue = NULL;
 int live555_start(char *url) {
+    int ret = 0;
     eventLoopWatchVariable = 0;
     if (g_pQueue == NULL) {
-       g_pQueue = new CQueue(60); //512K * 60 == 30Ms
+       g_pQueue = new CQueue(60); //512K * 60 == 30MByte
     }
     if(g_pQueue == NULL){
         return NULL;
     }
     pthread_t pliveThread;
+#if 0 // to
+    pthread_attr_t  pthread_pro;
+    pthread_attr_init(&pthread_pro);
 
-    if(0 != pthread_create(&pliveThread,NULL,live555_main,url)){
+    pthread_attr_setschedpolicy(&pthread_pro, SCHED_FIFO);
+    struct sched_param s_parm;
+    s_parm.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    pthread_attr_setschedparam(&pthread_pro, &s_parm);
+    if(0 != (ret = pthread_create(&pliveThread,&pthread_pro,live555_main,url))){
+#else
+    if(0 != (ret = pthread_create(&pliveThread,NULL,live555_main,url))){
+#endif
+        TRACK("craete sch erro: %s",strerror( ret));
         return -1;
     }
+
     pthread_detach(pliveThread);
     return 0;
 }
@@ -315,6 +357,38 @@ void setupNextSubsession(RTSPClient* rtspClient) {
             }
             env << ")\n";
 
+#if 1
+            if( scs.subsession->rtpSource() != NULL )
+            {
+                int fd = scs.subsession->rtpSource()->RTPgs()->socketNum();
+
+                int socket_buflen =0;
+                socklen_t result_len =sizeof(socket_buflen);
+
+                if(getsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char*)&socket_buflen, &result_len) <0)
+                {
+                    TRACK( "socket_recvBUf err %s\n",strerror( errno));
+                }
+                TRACK("socket_recvBUf len %d\n",socket_buflen);
+
+                    //拉到最大值
+                increaseReceiveBufferTo( env, fd, 2000*1024 );
+
+
+                if(getsockopt(fd, SOL_SOCKET, SO_RCVBUF, (char*)&socket_buflen, &result_len) <0)
+                {
+                    TRACK( "socket_recvBUf err %s\n",strerror( errno));
+                }
+                TRACK("socket_recvBUf len %d\n",socket_buflen);
+
+
+                TRACK("socket_recvBUf len %d\n",getReceiveBufferSize(env, fd));
+                /* Increase the RTP reorder timebuffer just a bit */
+               // scs.subsession->rtpSource()->setPacketReorderingThresholdTime(1000);
+
+                scs.subsession->rtpSource()->setPacketReorderingThresholdTime(0);
+            }
+#endif
             // Continue setting up this subsession, by sending a RTSP "SETUP" command:
             rtspClient->sendSetupCommand(*scs.subsession, continueAfterSETUP, False, REQUEST_STREAMING_OVER_TCP);
         }
