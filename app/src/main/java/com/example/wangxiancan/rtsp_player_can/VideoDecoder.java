@@ -183,7 +183,7 @@ public class VideoDecoder  {
            // Log.i("TRACK","decoding");
             //从解码器请求获取一个输入缓冲区
             int inputBufferIndex = decoder.dequeueInputBuffer(DECODE_TIMEOUT_US);
-            if(inputBufferIndex > 0){
+            if(inputBufferIndex >= 0){
                 Log.i(DECODE, "video decoding");
                 ByteBuffer buffer = decoder.getInputBuffer(inputBufferIndex);
 
